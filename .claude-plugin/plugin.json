@@ -1,0 +1,12 @@
+{
+    "name": "solod",
+    "description": "Solod programming language (a subset of Go that translates to C)",
+    "version": "0.1.0",
+    "author": {
+        "name": "Anton Zhiyanov",
+        "url": "https://antonz.org"
+    },
+    "homepage": "https://github.com/solod-dev/solod",
+    "repository": "https://github.com/solod-dev/ai",
+    "license": "BSD-3-Clause"
+}

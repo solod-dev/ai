@@ -1,0 +1,15 @@
+{
+    "name": "solod-plugins",
+    "description": "Plugins for the Solod programming language",
+    "owner": {
+        "name": "Anton Zhiyanov",
+        "url": "https://antonz.org"
+    },
+    "plugins": [
+        {
+            "name": "solod",
+            "source": "./",
+            "description": "Solod programming language (a subset of Go that translates to C)"
+        }
+    ]
+}
