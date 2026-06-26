@@ -119,6 +119,35 @@ var mypackage_c string
 
 `.h` files embed into the generated header, `.c` files into the implementation. The `var` declarations are markers only - not emitted as C variables.
 
+## Qualifiers and attributes
+
+**`//so:volatile`** - mark a package-level `var` as C `volatile`:
+
+```go
+//so:volatile
+var counter int
+```
+
+**`//so:thread_local`** - mark a package-level `var` as thread-local (C11 `_Thread_local`):
+
+```go
+//so:thread_local
+var perThread int
+```
+
+`//so:volatile` and `//so:thread_local` are allowed only on `var` declarations and can be combined.
+
+**`//so:attr <value>`** - add a GCC/Clang `__attribute__`. Text after `so:attr` is the attribute value. Allowed on `var`, `const`, `type`, and `func` declarations. Multiple lines combine:
+
+```go
+//so:attr packed
+//so:attr aligned(16)
+type header struct {
+    version byte
+    length  int
+}
+```
+
 ## Raw C intrinsics
 
 `c.Val[T](expr)` - typed C expression:
@@ -176,6 +205,7 @@ Types:
 
 - `c.Char` - C `char`
 - `c.ConstChar` - C `const char`
+- Numeric C types for interop: `c.Int`, `c.UInt`, `c.Long`, `c.ULong`, etc.
 
 ## Generic extern declarations
 

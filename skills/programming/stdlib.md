@@ -12,6 +12,7 @@ Each stdlib package is located at `solod.dev/so/<pkg>`. Use `go doc -all solod.d
 - cmp - Comparison functions
 - crypto/crand - Secure random
 - encoding/binary - Byte order
+- encoding/hex - Hex encoding/decoding
 - errors - Error creation
 - flag - Command-line flags
 - fmt - Formatted I/O
@@ -20,6 +21,8 @@ Each stdlib package is located at `solod.dev/so/<pkg>`. Use `go doc -all solod.d
 - maps - Dynamic hash maps
 - math, math/bits, math/rand - Math operations
 - mem - Memory allocation
+- net - TCP/UDP/Unix socket networking
+- net/netip - IP address value types
 - os - File I/O and filesystem
 - path - Path manipulation
 - runtime - Runtime info
@@ -28,6 +31,7 @@ Each stdlib package is located at `solod.dev/so/<pkg>`. Use `go doc -all solod.d
 - strings - String operations
 - time - Time measurement
 - unicode, unicode/utf8 - Unicode
+- uuid - UUID generation (RFC 9562)
 
 ## so/bufio
 
@@ -295,6 +299,41 @@ func (*SystemAllocator) Free(ptr any, size int, align int)
 func (*SystemAllocator) Realloc(ptr any, oldSize int, newSize int, align int) (any, error)
 ```
 
+## so/net
+
+Basic TCP, UDP, and Unix domain socket networking. Networks: `tcp`/`tcp4`/`tcp6`, `udp`/`udp4`/`udp6`, `unix` (stream) and `unixgram` (datagram). No concurrent server support.
+
+Conns implement `io.Reader`/`io.Writer`. Unconnected UDP/Unix datagram sockets use `ReadFrom`/`WriteTo` instead. `Accept`/`Read`/`Write` block by default; bound them with `SetDeadline` (fails with `ErrTimeout` past the deadline).
+
+```go
+func SplitHostPort(hostport string) (HostPort, error)
+func JoinHostPort(buf []byte, host, port string) string
+
+// TCP
+func ResolveTCPAddr(network, address string) (TCPAddr, error)
+func DialTCP(network string, laddr, raddr *TCPAddr) (TCPConn, error)
+func ListenTCP(network string, laddr *TCPAddr) (TCPListener, error)
+func (l *TCPListener) Accept() (TCPConn, error)
+func (conn *TCPConn) Read(b []byte) (int, error)
+func (conn *TCPConn) Write(b []byte) (int, error)
+func (conn *TCPConn) Close() error
+
+// UDP: DialUDP = connected (Read/Write), ListenUDP = unconnected (ReadFrom/WriteTo)
+func ResolveUDPAddr(network, address string) (UDPAddr, error)
+func DialUDP(network string, laddr, raddr *UDPAddr) (UDPConn, error)
+func ListenUDP(network string, laddr *UDPAddr) (UDPConn, error)
+func (conn *UDPConn) ReadFrom(b []byte) (UDPRead, error)
+func (conn *UDPConn) WriteTo(b []byte, addr *UDPAddr) (int, error)
+
+// Unix: DialUnix/ListenUnix = stream, ListenUnixgram = datagram. Socket file removed on Close.
+func ResolveUnixAddr(network, address string) (UnixAddr, error)
+func DialUnix(network string, laddr, raddr *UnixAddr) (UnixConn, error)
+func ListenUnix(network string, laddr *UnixAddr) (UnixListener, error)
+func ListenUnixgram(network string, laddr *UnixAddr) (UnixConn, error)
+```
+
+Types: `HostPort`, `TCPAddr`/`TCPConn`/`TCPListener`, `UDPAddr`/`UDPConn`, `UnixAddr`/`UnixConn`/`UnixListener`. Conns also have `LocalAddr`/`RemoteAddr` and `SetReadDeadline`/`SetWriteDeadline`. Conns must not be copied after use.
+
 ## so/os
 
 File I/O and filesystem (POSIX-based).
@@ -551,13 +590,16 @@ const Sunday Weekday = iota ...
 - **so/cmp** - comparison. `Compare`, `Equal`, `Less`, `Func`, `FuncFor[T]`.
 - **so/crypto/crand** - `Read`, `Text` for cryptographically secure random data.
 - **so/encoding/binary** - `LittleEndian`, `BigEndian` byte order.
+- **so/encoding/hex** - hex encoding/decoding. `Encode`, `Decode`, `Dump`, `Encoder`, `Decoder`, `Dumper`.
 - **so/flag** - command-line flag parsing. `BoolVar`, `IntVar`, `StringVar`, `Parse`, `Args`.
 - **so/log/slog** - structured logging. `Debug`, `Info`, `Warn`, `Error` + key-value attrs.
 - **so/math** - same API as Go's `math`.
 - **so/math/bits** - same API as Go's `math/bits`.
 - **so/math/rand** - PCG-based PRNG. `Int`, `IntN`, `Float64`, etc. Global seeded by `runtime.Seed`.
+- **so/net/netip** - same API as Go's `net/netip`.
 - **so/path** - path manipulation. `Base`, `Dir`, `Ext`, `Join`, `Split`, `Clean`, `IsAbs`, `Match`.
 - **so/runtime** - `GOOS`, `GOARCH`, `Version()`, `Seed()`.
 - **so/strconv** - conversions between numbers and strings.
 - **so/unicode** - `IsDigit`, `IsLetter`, `IsSpace`, `IsLower`, `IsUpper`, `ToLower`, `ToUpper`.
 - **so/unicode/utf8** - `DecodeRune`, `EncodeRune`, `RuneCount`, `ValidString`.
+- **so/uuid** - same as Go's `uuid` (Go 1.27+).

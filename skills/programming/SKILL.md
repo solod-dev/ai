@@ -18,7 +18,9 @@ Commands:
 - `so translate <package>` - transpile a package to C (generates `.h` and `.c` files). Always use `-o generated` to set output directory to `generated`.
 - `so version` - print compiler version.
 
-A So project is a standard Go module. Create one with `go mod init <name>`, then add the So standard library dependency: `go get solod.dev@latest`.
+A So project is a standard Go module. Create one with `go mod init <name>`, then add the So standard library dependency: `go get solod.dev@latest`. Third-party So packages (via `go install` or vendoring) and multi-module projects are supported.
+
+Targets: native 64-bit and 32-bit, WebAssembly (WASI), and freestanding mode (no libc dependency).
 
 ## Key restrictions vs Go
 
@@ -39,9 +41,9 @@ IMPORTANT: So is a manually managed language. Make sure you avoid typical memory
 | `string`  | `so_String`         | struct: `{ const char* ptr; so_int len; }`       |
 | `[]T`     | `so_Slice`          | struct: `{ void* ptr; so_int len; so_int cap; }` |
 | `map[K]V` | `so_Map*`           | pointer to stack-allocated hash table            |
+| `error`   | `so_Error`          | regular interface, as in Go                      |
 | `any`     | `void*`             | not an interface - just a pointer                |
 | `nil`     | `NULL`              |                                                  |
-| `error`   | `so_Error`          | pointer to error struct                          |
 
 All variables are zero-initialized as in Go.
 
@@ -99,7 +101,7 @@ func sum(a, b int) int { return a + b }
 
 ### Multiple return values
 
-Only two-value returns in two patterns:
+Only two-value returns in the following patterns:
 
 **`(T, error)` pattern:**
 
@@ -110,24 +112,23 @@ func divide(a, b int) (int, error) {
 }
 ```
 
-Supported T types: `bool`, `byte`, `float64`, `int`, `int64`, `rune`, `string`, `[]T`, `*T`.
+Supported T types: `bool`, `float32`, `float64`, `int`, `int32`, `int64`, `uint`, `uint16`, `uint32`, `uint64`, `rune`, `byte`, `string`, `[]T`, `*T`.
 
 **Custom struct results** for `(StructType, error)`:
 
 ```go
-type FileResult struct {
-    val File
-    err error
-}
-
 func open(name string) (File, error) { ... }
 ```
 
-**`(T1, T2)` pattern** for two values of any supported type:
+The compiler auto-generates the `{T}Result` struct (here `FileResult`). Auto-generation works only if at least one function in `T`'s package returns `(T, error)`. Otherwise, define the result struct `{T}Result` manually.
+
+**`(T1, T2)` pattern** for two values of the supported types:
 
 ```go
 func divmod(a, b int) (int, int) { return a / b, a % b }
 ```
+
+Supported T1/T2 types: `bool`, `float64`, `int`, `int64`, `uint`, `uint32`, `uint64`, `byte`, `rune`, `string`.
 
 ### Variadic functions
 
@@ -176,7 +177,7 @@ const (
 
 ## Errors
 
-Sentinel errors only, defined at package level:
+The `error` type is a regular interface with an `Error() string` method. In practice you use sentinel errors only, defined at package level:
 
 ```go
 var ErrNotFound = errors.New("not found")
@@ -189,7 +190,7 @@ var ErrNotFound = errors.New("not found")
 
 `panic()` accepts string literal, string variable, or error. No `recover`.
 
-`defer` works in function scope and bare block scope only. Not in `for` or `if`. Emitted inline in LIFO order.
+`defer` works in function scope only, as in Go. If you access a variable in a deferred function, it must be declared at the top level of the function (not inside a block). Otherwise, the variable will be out of scope when the deferred function executes (unlike Go, So can't capture variables in closures).
 
 ## Packages
 
