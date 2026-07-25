@@ -3,9 +3,11 @@
 ## Contents
 
 - Includes
+- Linking
 - Extern declarations and options
 - Automatic decay
 - Inlining
+- Promoting
 - Embeds
 - Raw C intrinsics
 - C helpers (so/c package)
@@ -25,6 +27,19 @@ Include only in the `.c` file (implementation detail):
 ```go
 //so:include.c "internal_helper.h"
 ```
+
+## Linking
+
+Declare a C library the package needs. The name is what follows `-l` on the linker command line:
+
+```go
+//so:include <pthread.h>
+//so:link pthread
+```
+
+`so build`, `so run`, `so test`, and `so bench` collect `so:link` names from every transpiled package, deduplicate them, and pass them to the C compiler after your `LDFLAGS`. No manual `LDFLAGS` needed.
+
+The standard library already declares its own: importing `so/math` links `-lm`, and `so/sync` or `so/conc` links `-lpthread`. On platforms where the library is part of libc (pthreads and libm on macOS) the extra flag is a harmless no-op.
 
 ## Extern declarations
 
@@ -104,6 +119,39 @@ func add(a, b int) int {
 ```
 
 Works with both functions and methods.
+
+## Promoting
+
+An unexported symbol normally stays in the `.c` file under its bare name. `//so:promote` puts it in the header instead, with the package prefix, while keeping it unexported in Go:
+
+```go
+//so:promote
+type counter struct { val int }
+
+//so:promote
+func newCounter() counter { ... }
+```
+
+```c
+// pkg.h
+typedef struct pkg_counter { so_int val; } pkg_counter;
+pkg_counter pkg_newCounter(void);
+```
+
+Types are emitted in full; functions and methods get a header prototype with the body left in the `.c` file; vars become `extern`; consts are emitted with their value.
+
+Use it when a header would otherwise reference a name it never declares: an exported `//so:inline` function calling an unexported helper, or an exported type with a field of an unexported type.
+
+```go
+type Stats struct { c counter }
+
+//so:inline
+func NewStats() Stats {
+    return Stats{c: newCounter()}
+}
+```
+
+Rules: rejected on exported declarations (redundant), can't combine with `//so:inline` (which already emits the body in the header), and a promoted method needs its receiver type exported or promoted too.
 
 ## Embeds
 

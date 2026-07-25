@@ -1,11 +1,11 @@
 ---
 name: programming-solod
-description: Writes programs in the Solod (So) language - a strict subset of Go that transpiles to C. Use when the user asks to write So code, work with So packages, create So programs, or asks about So language features. Covers the type system, memory model, C interop, standard library, and key differences from Go.
+description: Writes programs in the Solod (So) language - a strict subset of Go that transpiles to C. Use when the user asks to write So code, work with So packages, create So programs, or asks about So language features. Covers the type system, memory model, concurrency, C interop, standard library, and key differences from Go.
 ---
 
 # Programming in Solod (So)
 
-So is a strict subset of Go that transpiles to C11. All So code is syntactically valid Go. If a feature isn't listed here, it's not supported.
+So is a strict subset of Go that transpiles to C11. All So code is syntactically valid Go. If a feature isn't listed here, it's not supported. This skill covers So 0.3.
 
 ## The `so` command
 
@@ -13,10 +13,20 @@ The `so` CLI tool transpiles and compiles So programs. Make sure it is installed
 
 Commands:
 
-- `so run <package>` - transpile, compile, and run a package. Example: `so run .` or `so run ./myapp`.
+- `so run <package> [args]` - transpile, compile, and run a package. Example: `so run .` or `so run ./myapp`.
 - `so build <package>` - compile a package to an executable. Use `-o <file>` to set output name (default: package directory basename).
+- `so test <package>` - run the tests in the package's `test` subdirectory.
+- `so bench <package>` - run the benchmarks in the package's `bench` subdirectory.
 - `so translate <package>` - transpile a package to C (generates `.h` and `.c` files). Always use `-o generated` to set output directory to `generated`.
 - `so version` - print compiler version.
+
+Build flags, shared by `build`, `run`, `test`, and `bench`:
+
+- `-panic=trace|exit|abort` - how a panic terminates the program. `trace` (default) prints a symbolized backtrace then exits 1. Use `exit` on musl and `abort` when debugging or running under a sanitizer.
+- `-sanitize` - enable C sanitizers (`address,undefined` by default; `-sanitize=address` picks a set). Adds `-g` and frame pointers. Pair with `-panic=abort`.
+- `-track-source` - report So source locations in panic messages instead of C ones.
+
+The C compiler comes from `CC` (default `cc`), with `CFLAGS` and `LDFLAGS` passed through.
 
 A So project is a standard Go module. Create one with `go mod init <name>`, then add the So standard library dependency: `go get solod.dev@latest`. Third-party So packages (via `go install` or vendoring) and multi-module projects are supported.
 
@@ -24,7 +34,9 @@ Targets: native 64-bit and 32-bit, WebAssembly (WASI), and freestanding mode (no
 
 ## Key restrictions vs Go
 
-Not supported: goroutines, channels, closures, anonymous functions, iterators, generic methods (non-inline), `recover`, `fallthrough`, type switches, interface-to-interface assertions, `delete` on maps, dynamic errors, named return values, returning interfaces or arrays from functions.
+Not supported: goroutines and channels (use `so/conc` instead), function literals and closures, iterators, non-extern generic types, generic methods (except `//so:inline` ones), `recover`, `fallthrough`, type switches, interface-to-interface assertions, `delete` on maps, dynamic errors, named return values, labeled `continue`, method values, struct comparison with `==`, and slices of arrays.
+
+Multiple assignment can't have the same variable on both sides (`a[0], a[2] = a[2], a[0]`); use a temporary. A local variable can't shadow itself (`x := x`).
 
 IMPORTANT: So is a manually managed language. Make sure you avoid typical memory bugs (use-after-free, double-free, memory leaks, etc.) when writing So programs.
 
@@ -47,6 +59,12 @@ IMPORTANT: So is a manually managed language. Make sure you avoid typical memory
 
 All variables are zero-initialized as in Go.
 
+Go's `unsafe` package is available for `Sizeof`, `Alignof`, `Add`, `Pointer`, `String`, `StringData`, `Slice`, and `SliceData` (no `Offsetof`). The `min`, `max`, `len`, `cap`, `copy`, `clear`, `new`, `make`, `append`, `panic`, `print`, and `println` builtins all work.
+
+### Reserved C names
+
+Local variables and parameters whose names collide with C keywords or macros (`long`, `bool`, `register`, ...) are mangled automatically with a trailing underscore. The same names as struct fields or package-level declarations are rejected at compile time, so rename them.
+
 ## Strings
 
 `so_String` with `ptr` and `len`. Literals wrapped in `so_str()`.
@@ -62,10 +80,12 @@ All variables are zero-initialized as in Go.
 
 Plain C arrays. Value types on struct assignment (memcpy).
 
-- Decay to pointers when passed to functions (no value semantics on calls).
-- Cannot be returned from functions.
+- Decay to pointers when passed to functions, so a callee mutates the caller's array (no value semantics on calls).
+- Comparable with `==` and `!=` (unlike structs).
 - `len()` and `cap()` are compile-time constants.
 - Slicing an array produces a `so_Slice`.
+- A returned array becomes a pointer to that array in C, so never return a local one - return the parameter or a heap slice instead. Multi-dimensional arrays can't be returned at all.
+- Slices of arrays (`[][3]int`) are not supported. Use a slice of slices or wrap the array in a struct.
 
 ## Slices
 
@@ -95,7 +115,9 @@ Fixed-size, stack-allocated, pointer-based (`so_Map*`). MSI (mask-step-index) ha
 func sum(a, b int) int { return a + b }
 ```
 
-- No closures or anonymous functions. Use named function types instead.
+- No closures or function literals. Use named functions and function types instead.
+- Function values are supported: pass a named function where a `func(...)` type is expected.
+- Anonymous function types work as parameter and variable types (`func apply(n int, f func(int) int) int`), but not as return types - use a named type like `type CalcFunc func(int) int` there.
 - Exported (capitalized) -> `package_Func` in C. Unexported -> `static`.
 - Exported functions must only use exported types in signatures.
 
@@ -130,9 +152,11 @@ func divmod(a, b int) (int, int) { return a / b, a % b }
 
 Supported T1/T2 types: `bool`, `float64`, `int`, `int64`, `uint`, `uint32`, `uint64`, `byte`, `rune`, `string`.
 
+Arrays can't appear in a multi-return.
+
 ### Variadic functions
 
-Standard `...T` syntax. Can spread slices with `s...`.
+Standard `...T` syntax. Can spread slices with `s...` (except when calling extern C functions).
 
 ## Structs
 
@@ -146,6 +170,8 @@ p2 := new(point{1, 2})  // *point with values
 n := new(42)            // *int with value 42
 ```
 
+Anonymous structs are only allowed as local variables and as inner struct fields. Elsewhere (slice elements, params, returns) use a named type. Struct comparison with `==` is not supported.
+
 ## Methods
 
 - Pointer receivers: `void* self` in C, cast internally.
@@ -158,9 +184,12 @@ Struct with `void* self` + function pointers. No runtime type info.
 
 - Methods must use pointer receivers.
 - Convert to interface via pointer: `var s Shape = &rect`.
+- Interfaces can be returned from functions and stored in struct fields.
 - Type assertions: `_, ok := s.(*Rect)` or `r := s.(*Rect)` (not both).
-- Empty interface (`any`/`interface{}`) = `void*`.
+- Empty interface (`any`/`interface{}`) = `void*`. Only the direct form `v := a.(T)` works on an `any`; the comma-ok form doesn't.
 - No interface-to-interface assertions. No type switches.
+
+Because `any` carries no type information, an assertion on it is unchecked. If an `any` holds an interface value, assert it back to the interface type, never to the concrete pointer type inside it.
 
 ## Enums
 
@@ -192,29 +221,82 @@ var ErrNotFound = errors.New("not found")
 
 `defer` works in function scope only, as in Go. If you access a variable in a deferred function, it must be declared at the top level of the function (not inside a block). Otherwise, the variable will be out of scope when the deferred function executes (unlike Go, So can't capture variables in closures).
 
+## Runtime safety
+
+So catches a limited set of errors instead of letting them become undefined behavior:
+
+- **Escape analysis** rejects, at compile time, a function that returns a pointer to a stack-allocated value (`return &Point{x: x}`). It covers common cases only. Allocate through `so/mem` or `so/slices` and return that instead.
+- **Assertions** check preconditions the caller must satisfy: slice and string bounds, index out of range, slice-to-array length, zero map capacity, and integer division or modulo by zero. They panic on failure and report a source location. `c.Assert(cond, msg)` adds your own. Defining `NDEBUG` removes all of them, so assertion conditions must be side-effect free.
+- **Other runtime checks** (`append` beyond capacity, setting a key in a full map) always panic and ignore `NDEBUG`.
+- **Nil pointer dereference** is caught at runtime in POSIX hosted builds and reported as a panic with a backtrace but no source line. Freestanding and Windows builds fault like C.
+
+## Concurrency
+
+There are no goroutines or channels in the language. Use the standard library instead:
+
+- `so/conc` - OS threads, generic channels (buffered or rendezvous), and worker pools.
+- `so/sync` - mutexes, condition variables, once-only execution.
+- `so/sync/atomic` - lock-free atomic values.
+
+`sync` and `conc` types must be initialized before use, must not be copied, and must be freed. Importing either package links `-lpthread` automatically.
+
 ## Packages
 
 Each package -> one `.h` + `.c` pair. Multiple `.go` files merged.
 
-- Exported symbols prefixed with package name; unexported are `static`.
+- Exported symbols prefixed with package name; unexported are `static`. `//so:promote` puts an unexported symbol in the header with the package prefix without exporting it in Go.
 - Import -> `#include`.
-- **Declaration order matters** (C ordering): declare constants, types, and variables before functions that use them. If type B refers to type A, declare A first.
-- One `init()` per package allowed (emitted as `__attribute__((constructor))`).
+- **Constants and variables are emitted in source order**, so they can't refer to ones declared later. Types are emitted in dependency order, so a type may refer to a type declared below it.
+- A recursive type only works if the cycle passes through a struct (`type Node struct { next *Node }` is fine, `type StateFn func() StateFn` is not).
+- One `init()` per package allowed (emitted as `__attribute__((constructor))`). With several packages, init order is unspecified.
 
 ## Memory model
 
 - **Stack by default:** `make()`, `append()`, `new()`, map literals are all stack-allocated.
 - **Heap via stdlib:** `slices.Make`, `slices.Append`, `maps.New`, `mem.Alloc` - all take `mem.Allocator`.
-- Pass `nil` for allocator to use the system allocator (calloc/realloc/free).
+- Prefer passing `mem.System` explicitly (passing `nil` also selects it).
+- `mem` also offers an `Arena` (bump allocator over a fixed buffer), a `NoAllocator`, and a `Tracker` that counts allocations to find leaks.
 - Maximum stack allocation: 64KB (`so_MaxAllocaSize`).
 
 ## Testing
 
-Since So code is valid Go, tests use the standard `go test` toolchain. Functions marked `//so:extern` have Go stub bodies that serve as test doubles - the Go test runner executes these stubs while the real C implementations are used in the compiled binary.
+So programs are tested with `so test` and the `so/testing` package. Tests live in a `test` subdirectory of the package under test; benchmarks live in `bench` and run with `so bench`.
 
-- Run all tests: `go test ./...`
-- Run a specific test: `go test -run TestName ./path/to/package`
-- `//so:extern` function bodies are only executed during `go test` - they are not emitted to C. Write them to return reasonable values for testing.
+```
+so/bytes/
+    bytes.go
+    test/
+        bytes.go     # your tests
+        main.go      # generated by `so test`, committed
+```
+
+Test files are plain `.go` files (no `_test.go` suffix) in `package main`, so `go test` ignores them. Because `test` is a separate package, tests only see the exported API.
+
+```go
+package main
+
+import (
+	"solod.dev/so/bytes"
+	"solod.dev/so/testing"
+)
+
+func TestEqual(t *testing.T) {
+	if !bytes.Equal([]byte("abc"), []byte("abc")) {
+		t.Error("Equal(abc, abc) = false, want true")
+	}
+}
+```
+
+- Run with `so test ./so/bytes`. `-run=TestPrefix` limits the run (plain prefix match, not a regexp).
+- After adding, renaming, or removing a `TestXxx` function, re-run `so test` to regenerate `test/main.go`, and commit it.
+- `T` provides `Name`, `Log`, `Error`, `Errorf`, `Fatal`, `Fatalf`, `Skip`, `Fail`, `Failed`, and `Allocator`.
+- **`Fatal` and `Skip` don't stop the function** (there's no `recover`). Always `return` right after them.
+- A hard crash (panic or segfault) aborts the whole run, since all tests share one process.
+- Allocate through `t.Allocator()` to have the test fail on leaked memory.
+
+Benchmarks are `BenchmarkXxx(b *testing.B)` functions with the measured code inside a `for b.Loop()` loop. `b.Loop` doesn't keep the body alive, so assign results to a `//so:volatile` package variable or pass the object to `testing.Keep` to survive optimization.
+
+Since So code is also valid Go, `_test.go` files still work with the regular `go test` toolchain (both `so test` and `so bench` ignore them). Functions marked `//so:extern` have Go stub bodies that serve as test doubles: the Go test runner executes these stubs, while the real C implementations are used in the compiled binary.
 
 ## Generics
 
@@ -227,5 +309,5 @@ See [interop.md](interop.md) for details on both forms.
 
 ## Additional references
 
-- **C interop and generics**: See [interop.md](interop.md) for `//so:extern`, `//so:include`, `//so:inline`, `//so:embed`, automatic decay, raw C intrinsics, and generic patterns.
-- **Standard library**: See [stdlib.md](stdlib.md) for all `so/*` packages. Use `go doc -all solod.dev/so/<pkg>` for full API details.
+- **C interop and generics**: See [interop.md](interop.md) for `//so:extern`, `//so:include`, `//so:link`, `//so:inline`, `//so:promote`, `//so:embed`, automatic decay, raw C intrinsics, and generic patterns.
+- **Standard library**: See [stdlib.md](stdlib.md) for what each `so/*` package is for. Use `go doc solod.dev/so/<pkg>` for API details.

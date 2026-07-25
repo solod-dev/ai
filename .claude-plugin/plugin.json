@@ -1,7 +1,7 @@
 {
     "name": "solod",
     "description": "Solod programming language (a subset of Go that translates to C)",
-    "version": "0.2.0",
+    "version": "0.3.0",
     "author": {
         "name": "Anton Zhiyanov",
         "url": "https://antonz.org"
